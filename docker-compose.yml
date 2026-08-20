@@ -1,0 +1,97 @@
+name: droneenergy-os
+
+services:
+  mysql:
+    image: mysql:8.0
+    environment:
+      MYSQL_ROOT_PASSWORD: root123
+      MYSQL_DATABASE: drone_energy
+    ports:
+      # 宿主机 3306 常被本地 MySQL 占用，对外映射 3307；
+      # 容器间通信走内部网络 mysql:3306，不受此映射影响
+      - "3307:3306"
+    volumes:
+      - mysql_data:/var/lib/mysql
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-h", "127.0.0.1", "-uroot", "-proot123"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+    networks: [drone-net]
+
+  redis:
+    image: redis:7-alpine
+    ports:
+      # 宿主机 6379 已被 netops-redis 占用，对外映射 6380；
+      # 容器间通信走内部网络 redis:6379，不受此映射影响
+      - "6380:6379"
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+    networks: [drone-net]
+
+  backend:
+    build: ./backend
+    ports:
+      # 宿主机 8000 已被 netops-backend 占用，对外映射 8001；
+      # 容器间通信走内部网络 backend:8000，不受此映射影响
+      - "8001:8000"
+    environment:
+      # charset 必须显式声明：PyMySQL 不指定时会依赖服务器握手协商，
+      # 旧版驱动对 MySQL 8 默认 collation(utf8mb4_0900_ai_ci) 会回退 latin1，中文即损坏
+      DATABASE_URL: mysql+pymysql://root:root123@mysql:3306/drone_energy?charset=utf8mb4
+      REDIS_URL: redis://redis:6379/0
+      DEEPSEEK_API_KEY: ${DEEPSEEK_API_KEY:-}
+    depends_on:
+      mysql:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    networks: [drone-net]
+    # 多副本验证（WS 广播修正后天然支持）：
+    # docker compose up -d --scale backend=2
+
+  fake-data:
+    build: ./fake_data_generator
+    environment:
+      WS_URL: ws://backend:8000
+      API_URL: http://backend:8000
+      # 批量上报走 JWT（operator 角色）；与 app/auth/seed.py 的默认账号对应
+      API_USER: ${API_USER:-operator}
+      API_PASSWORD: ${API_PASSWORD:-operator123}
+    depends_on: [backend]
+    networks: [drone-net]
+
+  # TODO(Week 1-2): frontend 服务（Vue3 + Vite，构建产物经 nginx 提供）
+
+  # ---------- 可观测性：--profile monitoring 启动 ----------
+  prometheus:
+    image: prom/prometheus:v2.53.0
+    profiles: [monitoring]
+    ports:
+      - "9090:9090"
+    volumes:
+      - ./monitoring/prometheus:/etc/prometheus:ro
+    networks: [drone-net]
+
+  grafana:
+    image: grafana/grafana:11.1.0
+    profiles: [monitoring]
+    ports:
+      - "3001:3000"
+    environment:
+      GF_SECURITY_ADMIN_PASSWORD: admin
+    volumes:
+      - ./monitoring/grafana/provisioning:/etc/grafana/provisioning:ro
+      - grafana_data:/var/lib/grafana
+    depends_on: [prometheus]
+    networks: [drone-net]
+
+networks:
+  drone-net:
+
+volumes:
+  mysql_data:
+  grafana_data:

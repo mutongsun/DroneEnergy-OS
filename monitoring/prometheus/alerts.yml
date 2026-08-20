@@ -1,0 +1,47 @@
+groups:
+  - name: droneenergy-os
+    rules:
+      - alert: HttpHighErrorRate
+        expr: >
+          sum(rate(http_requests_total{status=~"5.."}[5m]))
+            / clamp_min(sum(rate(http_requests_total[5m])), 0.000000001) > 0.05
+        for: 5m
+        labels:
+          severity: critical
+        annotations:
+          summary: "HTTP 5xx 错误率超过 5%（持续 5 分钟）"
+          description: "排查：docker compose logs backend | grep ERROR（按 trace_id 串联）"
+
+      - alert: HttpSlowP95
+        expr: >
+          histogram_quantile(0.95, sum(rate(http_request_duration_seconds_bucket[5m])) by (le)) > 1
+        for: 10m
+        labels:
+          severity: warning
+        annotations:
+          summary: "HTTP P95 延迟超过 1s"
+
+      - alert: AiServiceDegraded
+        expr: increase(ai_calls_total{status="error"}[10m]) >= 5
+        for: 2m
+        labels:
+          severity: warning
+        annotations:
+          summary: "DeepSeek 10 分钟内失败 ≥5 次（熔断可能已开启）"
+          description: "检查 DEEPSEEK_API_KEY 有效性 / 上游服务状态"
+
+      - alert: SensorDataStreamBroken
+        expr: rate(sensor_frames_received_total[2m]) == 0
+        for: 3m
+        labels:
+          severity: warning
+        annotations:
+          summary: "传感器数据流中断（模拟器或 WS 链路异常）"
+          description: "前提：fake-data 服务在运行；否则为误报，可在 Prometheus UI 静默"
+
+      - alert: WebSocketConnectionsDropped
+        expr: delta(ws_active_connections[5m]) < -3
+        labels:
+          severity: warning
+        annotations:
+          summary: "WS 连接数 5 分钟内下降超过 3"
