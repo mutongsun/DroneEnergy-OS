@@ -14,9 +14,10 @@ concurrency:
 jobs:
   quality:
     runs-on: ubuntu-latest
-    # frontend 为 v1 路线图 Week 1-2 交付物：
-    # 落盘前本流水线自动跳过，落盘后自动生效
-    if: hashFiles('frontend/package.json') != ''
+    # frontend 为 v1 路线图 Week 1-2 交付物。
+    # 上方 paths: ["frontend/**"] 过滤器已保证：前端落盘前本流水线不会触发，
+    # 落盘后自动生效。注意：hashFiles 不能用于 job 级 if（GitHub 会报
+    # Unrecognized named-value 并使整个 workflow 直接失败）。
     defaults:
       run:
         working-directory: frontend
