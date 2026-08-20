@@ -22,8 +22,10 @@ async def realtime(ws: WebSocket, drone_id: int) -> None:
                 continue  # 非 JSON 上行直接忽略，不中断连接
             if msg.get("type") == "sensor_frame":
                 SENSOR_FRAMES_RECEIVED_TOTAL.inc()
-                # TODO(Week 2): 实时转发前端（manager.send_sensor_frame）；
-                # 持久化已由 POST /api/v1/sensor/batch（模拟器批量上报）承担
+                # 实时转发：经 Redis PubSub 扇出到所有副本上订阅该无人机的浏览器；
+                # 持久化由 POST /api/v1/sensor/batch（模拟器批量上报）承担，
+                # WS 链路只负责实时观看，不落库
+                await manager.send_sensor_frame(drone_id, msg)
     except WebSocketDisconnect:
         pass
     finally:

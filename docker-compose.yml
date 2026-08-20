@@ -64,7 +64,13 @@ services:
     depends_on: [backend]
     networks: [drone-net]
 
-  # TODO(Week 1-2): frontend 服务（Vue3 + Vite，构建产物经 nginx 提供）
+  frontend:
+    build: ./frontend
+    ports:
+      # 宿主机 80 慎用，对外映射 5173（与 vite dev 端口一致，心智统一）
+      - "5173:80"
+    depends_on: [backend]
+    networks: [drone-net]
 
   # ---------- 可观测性：--profile monitoring 启动 ----------
   prometheus:

@@ -40,7 +40,7 @@ jobs:
         run: npm run typecheck
 
       - name: Unit test (vitest)
-        run: npm run test -- --run
+        run: npm run test
 
       - name: Build
         run: npm run build
