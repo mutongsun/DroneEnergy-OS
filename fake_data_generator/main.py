@@ -138,7 +138,9 @@ async def simulate_drone(drone_id: int, model: str, api: ApiClient) -> None:
     lat, lng = 39.9042, 116.4074
     batch: list[dict[str, Any]] = []
 
-    ws = await connect_with_retry(f"{WS_URL}/ws/realtime/{drone_id}")
+    # 上行走 /ws/upload（生产者端点）：不注册订阅表，避免收到自己数据的回声
+    # ——回声会堆积在只发不读的接收队列里，最终撑爆 keepalive 导致断连
+    ws = await connect_with_retry(f"{WS_URL}/ws/upload/{drone_id}")
     async with ws:
         for tick in range(3600):  # 模拟 1 小时飞行
             if tick == 30:

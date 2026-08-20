@@ -56,6 +56,8 @@ services:
   fake-data:
     build: ./fake_data_generator
     environment:
+      # python 默认块缓冲会让 print 延迟数分钟才可见
+      PYTHONUNBUFFERED: "1"
       WS_URL: ws://backend:8000
       API_URL: http://backend:8000
       # 批量上报走 JWT（operator 角色）；与 app/auth/seed.py 的默认账号对应
