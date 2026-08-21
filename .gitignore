@@ -21,3 +21,9 @@ dist/
 .idea/
 .vscode/
 .DS_Store
+
+# 压测产物（脚本入库，原始输出不入库；汇总数据见 docs/load-test-report-*.md）
+.venv-loadtest/
+result_*.csv
+result_*.html
+

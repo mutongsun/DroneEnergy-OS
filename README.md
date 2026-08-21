@@ -101,7 +101,12 @@ def require_roles(*roles: str) -> Callable[[User], User]:
 | `/api/v1/sensor/history/{id}` | GET | ✅ | ✅ | ✅ |
 | `/api/v1/sensor/batch` | POST | ❌ 403 | ✅ | ✅ |
 | `/api/v1/ai/diagnose` | POST | ❌ 403 | ✅ | ✅ |
-| `/ws/upload/{id}` / `/ws/realtime/{id}` | WS | 无认证（v2 待办：令牌握手） | — | — |
+| `/ws/realtime/{id}` | WS | ✅（任意认证用户可观看） | ✅ | ✅ |
+| `/ws/upload/{id}` | WS | ❌ 4403 | ✅ | ✅ |
+
+> WS 认证说明：浏览器 WebSocket API 不支持自定义请求头，故采用查询参数传令牌
+> （`/ws/realtime/1?token=<jwt>`）。认证失败以自定义关闭码标识：`4401`（令牌
+> 缺失/无效/过期）、`4403`（角色不足），客户端据此引导重新登录。
 
 错误码约定：
 - `401 Unauthorized` — 未携带/无效/过期令牌（前端拦截器自动清凭据跳登录页）
@@ -334,10 +339,10 @@ DroneEnergy-OS/
 
 ```bash
 cd backend
-pytest --cov=app --cov-report=term --cov-fail-under=50   # 50 个用例，覆盖率门禁 50%
+pytest --cov=app --cov-report=term --cov-fail-under=75   # 58 个用例，覆盖率门禁 75%
 ```
 
-覆盖模块：auth（登录/JWT/RBAC）、drones CRUD、sensor 入库+历史、AI 诊断（替身客户端，不打真实 API）、WS 管理器（广播/幂等清理/心跳取消）、熔断器状态机、可观测性（TraceId/指标）。
+覆盖模块：auth（登录/JWT/RBAC）、drones CRUD、sensor 入库+历史、AI 诊断（替身客户端，不打真实 API）、WS 管理器（广播/幂等清理/心跳取消）、WS 端点认证（4401/4403 关闭码、角色矩阵）、熔断器状态机、可观测性（TraceId/指标）。
 
 前端：`cd frontend && npm run test`（vitest，WS 解析 / 滚动缓冲 / auth store）。
 
@@ -347,4 +352,5 @@ pytest --cov=app --cov-report=term --cov-fail-under=50   # 50 个用例，覆盖
 - [x] Week 2：WS 实时链路（生产者/消费者分离）+ Redis 广播 + Vue3 前端 + ECharts
 - [x] Week 3：Three.js 3D 姿态 + DeepSeek 诊断（熔断 + fallback）+ 历史查询
 - [x] Week 4：RBAC 文档 + 压测报告模板 + README
-- [ ] 待办：WS 端点令牌认证、覆盖率门禁上调 60%+、压测实测数据回填
+- [x] Week 5：WS 端点令牌认证（4401/4403 关闭码）+ 3D 姿态可感知化（HUD/机头标记/最短路径插值）+ 模拟器姿态平滑模型 + 连接池扩容 + 压测实测回填（[docs/load-test-report-20260821.md](docs/load-test-report-20260821.md)）+ 覆盖率门禁上调 75%
+- [x] 压测驱动修复：WS 握手期 event loop 死锁（100 并发观看曾令后端假死，v4 修复后零断连稳态 1Hz）+ 历史查询减列（串行 3.4x）
