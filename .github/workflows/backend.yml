@@ -39,9 +39,10 @@ jobs:
       - name: Type check (mypy)
         run: mypy app
 
-      # 覆盖率门禁：起始 50%，随测试补充逐步只升不降（ratchet 策略）
+      # 覆盖率门禁（ratchet 策略）：50% → 75%（v3，实测 ~92%），
+      # 只升不降：下调需团队评审，上调随测试补充随时进行
       - name: Test (pytest + coverage gate)
-        run: pytest --cov=app --cov-report=term --cov-fail-under=50
+        run: pytest --cov=app --cov-report=term --cov-fail-under=75
 
   docker:
     needs: quality

@@ -155,6 +155,11 @@ class ApiClient:
         async with self._lock:
             return self._token if self._token else await self._login()
 
+    async def invalidate(self) -> None:
+        """丢弃缓存令牌（WS 4401 / 令牌过期后强制重登录）"""
+        async with self._lock:
+            self._token = None
+
     async def post_batch(self, frames: list[dict[str, Any]]) -> bool:
         """上报一批帧；成功返回 True，401 重登录重试一次"""
         tok = await self.token()
@@ -186,10 +191,12 @@ async def simulate_drone(drone_id: int, model: str, api: ApiClient) -> None:
         attitude = Attitude()
         batch: list[dict[str, Any]] = []
 
-        # 上行走 /ws/upload（生产者端点）：不注册订阅表，避免收到自己数据的回声
-        # ——回声会堆积在只发不读的接收队列里，最终撑爆 keepalive 导致断连
+        # 上行走 /ws/upload（生产者端点，v3 起需 JWT）：不注册订阅表，
+        # 避免收到自己数据的回声——回声会堆积在只发不读的接收队列里，
+        # 最终撑爆 keepalive 导致断连
         try:
-            ws = await connect_with_retry(f"{WS_URL}/ws/upload/{drone_id}")
+            token = await api.token()
+            ws = await connect_with_retry(f"{WS_URL}/ws/upload/{drone_id}?token={token}")
         except (OSError, websockets.WebSocketException):
             print(f"[drone-{drone_id}] 重连 30 次仍失败，60s 后再试")
             await asyncio.sleep(60)
@@ -219,8 +226,13 @@ async def simulate_drone(drone_id: int, model: str, api: ApiClient) -> None:
                     altitude = update_altitude(phase, altitude)
                     lat += 0.0001
                     await asyncio.sleep(1)  # 1Hz 数据频率
-        except websockets.ConnectionClosed:
-            print(f"[drone-{drone_id}] WS 断开（后端重启？），5s 后重连")
+        except websockets.ConnectionClosed as exc:
+            if exc.code == 4401:
+                # 令牌无效/过期：丢弃缓存，下轮连接前重新登录
+                await api.invalidate()
+                print(f"[drone-{drone_id}] WS 令牌被拒（4401），重新登录")
+            else:
+                print(f"[drone-{drone_id}] WS 断开（后端重启？），5s 后重连")
             await asyncio.sleep(5)
 
 

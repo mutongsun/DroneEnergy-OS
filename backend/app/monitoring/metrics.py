@@ -19,6 +19,8 @@ HTTP_REQUEST_LATENCY = Histogram(
 # ---------- WebSocket / 数据接入 ----------
 WS_ACTIVE_CONNECTIONS = Gauge("ws_active_connections", "当前活跃 WebSocket 连接数")
 WS_MESSAGES_SENT_TOTAL = Counter("ws_messages_sent_total", "WS 下行消息总数", ["drone_id"])
+# close_code 取值：4401（令牌无效）/ 4403（角色不足）
+WS_AUTH_FAILURES_TOTAL = Counter("ws_auth_failures_total", "WS 握手认证失败次数", ["close_code"])
 SENSOR_FRAMES_RECEIVED_TOTAL = Counter("sensor_frames_received_total", "接收到的传感器数据帧总数")
 SENSOR_FRAMES_WRITTEN_TOTAL = Counter("sensor_frames_written_total", "批量写入数据库的传感器帧总数")
 

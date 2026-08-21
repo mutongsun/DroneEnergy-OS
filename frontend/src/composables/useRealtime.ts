@@ -1,4 +1,5 @@
 import { ref, shallowRef, onBeforeUnmount } from 'vue'
+import { useAuthStore } from '@/stores/auth'
 import type { SensorFrame } from '@/types/api'
 
 /** WS 下行解析：sensor_frame 返回帧，ping / 非 JSON / 缺字段返回 null */
@@ -57,10 +58,13 @@ export function wsBaseUrl(): string {
 
 /**
  * 实时帧订阅：连接 /ws/realtime/{droneId}，维护最新帧与滚动曲线缓冲。
+ * 认证：后端 v3 起 WS 握手校验 JWT（浏览器 WS API 不支持自定义请求头，
+ * 令牌经查询参数传递）；服务端拒绝时以 4401/4403 关闭码断开。
  * 断线由浏览器 WebSocket 自动兜底（后端心跳 ping 30s 侦测死连接），
  * 本期不做前端自动重连，留待 v2。
  */
 export function useRealtime(maxPoints = 120) {
+  const auth = useAuthStore()
   const connected = ref(false)
   const latest = shallowRef<SensorFrame | null>(null)
   const buffer = new FrameBuffer(maxPoints)
@@ -72,7 +76,8 @@ export function useRealtime(maxPoints = 120) {
     buffer.clear()
     series.value = []
     latest.value = null
-    ws = new WebSocket(`${wsBaseUrl()}/ws/realtime/${droneId}`)
+    const token = auth.token
+    ws = new WebSocket(`${wsBaseUrl()}/ws/realtime/${droneId}?token=${token ?? ''}`)
     ws.onopen = () => {
       connected.value = true
     }
