@@ -216,7 +216,24 @@ npm run lint && npm run typecheck && npm run test && npm run build
 > 首次部署请配合 [docs/deploy-checklist.md](docs/deploy-checklist.md)（完整检查清单：
 > 前置条件 → 环境 → Secrets → 端口安全 → 首次部署 → 功能验证 → 故障排查）。
 
-### 服务器一次性初始化（bootstrap）
+### 一键部署（推荐）
+
+清单中的服务器侧步骤已自动化为 [scripts/deploy-server.sh](scripts/deploy-server.sh)
+（幂等，重复执行安全）：装 Docker → clone/pull 仓库 → 生成 .env（随机强密码）→
+GHCR 登录 → 拉镜像 → 起容器 → 健康检查 → API 冒烟（登录/设备/历史/RBAC 403/落库流水）。
+
+```bash
+# 服务器上直接跑（自动 clone 到 /opt/droneenergy-os）
+curl -fsSL -o deploy.sh \
+  https://raw.githubusercontent.com/mutongsun/DroneEnergy-OS/main/scripts/deploy-server.sh
+bash deploy.sh --deepseek-key sk-xxx        # 免交互；不带参数则逐步询问
+# 可选：--ghcr-token <PAT>  私有镜像登录；--with-monitoring  附带 Prometheus+Grafana
+```
+
+脚本无法代劳的三件事会在结束时提示：云安全组放行 22/5173、GitHub Secrets
+配置、浏览器验证实时页。手动分步执行见下文。
+
+### 服务器一次性初始化（bootstrap，手动分步）
 
 ```bash
 # 1. 安装 Docker + Compose 插件 + Git（Ubuntu 示例）
