@@ -1,25 +1,43 @@
-# 生产/测试环境部署覆盖层：消费 GHCR 镜像而非本地构建
+# 生产/测试环境部署覆盖层：消费 GHCR 镜像 + 收紧端口暴露
 #
 # 用法（在服务器上，与 docker-compose.yml 叠加）：
 #   docker compose -f docker-compose.yml -f docker-compose.prod.yml pull
 #   docker compose -f docker-compose.yml -f docker-compose.prod.yml up -d --no-build
 #
 # 设计说明：
-# - 本文件只声明 image:；merge 后 build: 与 image: 并存，
+# - 只声明 image:；merge 后 build: 与 image: 并存，
 #   `pull` 拉取镜像 + `up -d --no-build` 禁止构建 → 纯镜像部署
 # - 镜像由 CI（backend.yml / frontend.yml 的 docker job）推送到 GHCR，
-#   部署机不需要源码构建能力（无 Dockerfile 上下文依赖）
+#   部署机不需要源码构建能力
 # - GHCR 包默认私有：部署机需 docker login ghcr.io（read:packages 权限 PAT），
 #   或在 GitHub 包设置中改为 public
-# - 监控栈（prometheus/grafana）沿用 base 的 profiles: [monitoring]，
-#   测试环境需要时加 --profile monitoring
+#
+# 端口安全（重要）：
+# - compose 对 ports 的 merge 规则是「追加」而非「替换」，base 里的
+#   3307/6380/8001 映射无法靠省略来移除——必须用 !override 整体覆盖
+#   （需 docker compose v2.24+，get.docker.com 安装的新版本均满足）
+# - mysql/redis 的映射仅供本地调试，服务器上整体移除（容器间走内部
+#   网络 mysql:3306 / redis:6379；redis 无密码，绝不可暴露公网）
+# - backend 仅绑定 127.0.0.1：供 deploy.yml 健康检查 curl localhost:8001，
+#   公网不直接可达（浏览器流量统一走前端 nginx 反代，天然同源）
+# - frontend 5173 是唯一公网入口
 
 services:
   backend:
     image: ghcr.io/mutongsun/droneenergy-os/backend:latest
+    ports: !override
+      - "127.0.0.1:8001:8000"
 
   frontend:
     image: ghcr.io/mutongsun/droneenergy-os/frontend:latest
+    ports: !override
+      - "5173:80"
 
   fake-data:
     image: ghcr.io/mutongsun/droneenergy-os/fake-data:latest
+
+  mysql:
+    ports: !override []
+
+  redis:
+    ports: !override []

@@ -213,6 +213,9 @@ npm run lint && npm run typecheck && npm run test && npm run build
 拉取 GHCR 镜像 → 滚动更新 → 健康检查门禁（失败自动输出后端日志）。
 选择手动而非 push 即部署：测试环境可能承载演示/联调，不应被中间态代码打断。
 
+> 首次部署请配合 [docs/deploy-checklist.md](docs/deploy-checklist.md)（完整检查清单：
+> 前置条件 → 环境 → Secrets → 端口安全 → 首次部署 → 功能验证 → 故障排查）。
+
 ### 服务器一次性初始化（bootstrap）
 
 ```bash
