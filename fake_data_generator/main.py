@@ -7,6 +7,10 @@ v2 修正：
 - 进程生命周期内共享单个 ClientSession（TCPConnector 连接池）
 - 传感器帧聚合后批量 POST，降低请求次数
 - 单架无人机失败不影响其他无人机（gather 的 return_exceptions 兜底由主循环处理）
+
+v2.1 增强：
+- 姿态改为平滑随机游走（Attitude 类）：逐帧独立随机会让 3D 可视化
+  呈现每秒乱跳的抖动，看不出"数据驱动画面"的因果关系
 """
 import asyncio
 import json
@@ -31,9 +35,18 @@ DRONE_MODELS: dict[str, dict[str, float]] = {
 
 
 def build_frame(
-    drone_id: int, model: str, soc: float, phase: str, lat: float, lng: float, altitude: float
+    drone_id: int,
+    model: str,
+    soc: float,
+    phase: str,
+    lat: float,
+    lng: float,
+    altitude: float,
+    pitch: float,
+    yaw: float,
+    roll: float,
 ) -> dict[str, Any]:
-    """生成 20 维传感器数据帧"""
+    """生成 20 维传感器数据帧（姿态由调用方传入，保证时间连续性）"""
     spec = DRONE_MODELS[model]
     return {
         "type": "sensor_frame",
@@ -52,14 +65,43 @@ def build_frame(
         "wind_speed_ms": round(random.uniform(0, 13.8), 2),
         "wind_direction_deg": round(random.uniform(0, 360), 1),
         "altitude_m": round(altitude, 2),
-        "pitch_deg": round(random.uniform(-15, 15), 2),
-        "yaw_deg": round(random.uniform(-180, 180), 2),
-        "roll_deg": round(random.uniform(-10, 10), 2),
+        "pitch_deg": round(pitch, 2),
+        "yaw_deg": round(yaw, 2),
+        "roll_deg": round(roll, 2),
         "gps_lat": round(lat + random.uniform(-0.001, 0.001), 6),
         "gps_lng": round(lng + random.uniform(-0.001, 0.001), 6),
         "battery_soc_percent": round(soc, 2),
         "fault_code": 0 if random.random() > 0.02 else random.randint(1, 5),
     }
+
+
+class Attitude:
+    """平滑随机游走姿态模型
+
+    逐帧独立随机的姿态（v2 及之前）在 3D 可视化里表现为每秒乱跳的抖动，
+    看不出"数据驱动画面"的因果关系；真实飞控的姿态是时间连续的。
+    本模型用"速度惯性 + 随机加速度 + 限幅"生成平滑渐变的姿态曲线。
+    """
+
+    def __init__(self) -> None:
+        self.pitch = 0.0
+        self.yaw = 0.0
+        self.roll = 0.0
+        self._v_pitch = 0.0
+        self._v_yaw = 0.0
+        self._v_roll = 0.0
+
+    def step(self) -> tuple[float, float, float]:
+        """推进一步（1Hz 调用），返回 (pitch, yaw, roll) 角度"""
+        self._v_pitch = self._v_pitch * 0.85 + random.uniform(-0.7, 0.7)
+        self._v_roll = self._v_roll * 0.85 + random.uniform(-0.5, 0.5)
+        self._v_yaw = self._v_yaw * 0.85 + random.uniform(-1.2, 1.2)
+
+        self.pitch = max(-15.0, min(15.0, self.pitch + self._v_pitch))
+        self.roll = max(-10.0, min(10.0, self.roll + self._v_roll))
+        # yaw 环形取值域 [-180, 180)：跨界由前端最短路径插值处理
+        self.yaw = (self.yaw + self._v_yaw + 180.0) % 360.0 - 180.0
+        return self.pitch, self.yaw, self.roll
 
 
 def update_altitude(phase: str, altitude: float) -> float:
@@ -141,6 +183,7 @@ async def simulate_drone(drone_id: int, model: str, api: ApiClient) -> None:
     while True:
         soc, altitude, phase = 100.0, 0.0, "takeoff"
         lat, lng = 39.9042, 116.4074
+        attitude = Attitude()
         batch: list[dict[str, Any]] = []
 
         # 上行走 /ws/upload（生产者端点）：不注册订阅表，避免收到自己数据的回声
@@ -160,7 +203,10 @@ async def simulate_drone(drone_id: int, model: str, api: ApiClient) -> None:
                     if tick == 3300:
                         phase = "landing"
 
-                    frame = build_frame(drone_id, model, soc, phase, lat, lng, altitude)
+                    pitch, yaw, roll = attitude.step()
+                    frame = build_frame(
+                        drone_id, model, soc, phase, lat, lng, altitude, pitch, yaw, roll
+                    )
                     batch.append(frame)
                     await ws.send(json.dumps(frame, ensure_ascii=False))
 
