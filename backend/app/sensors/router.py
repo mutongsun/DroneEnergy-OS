@@ -84,4 +84,3 @@ def latest_frames(db: Session, drone_id: int, count: int = 60) -> list[SensorSna
     ).all()
     rows.reverse()
     return rows
-

@@ -108,8 +108,12 @@ def test_diagnose_fallback_flows_through(
 
     client.post(
         "/api/v1/drones",
-        json={"name": "测试机", "model": "XAG_P80Pro", "status": "flying",
-              "max_battery_mah": 12000},
+        json={
+            "name": "测试机",
+            "model": "XAG_P80Pro",
+            "status": "flying",
+            "max_battery_mah": 12000,
+        },
         headers=headers,
     )
     resp = client.post("/api/v1/ai/diagnose", json={"drone_id": 1}, headers=headers)
