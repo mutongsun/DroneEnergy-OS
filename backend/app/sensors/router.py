@@ -60,12 +60,15 @@ def get_history(
 ) -> HistoryOut:
     """最近 N 分钟历史曲线（时间升序）；limit 截尾保护大时间窗查询"""
     since = datetime.now(UTC).replace(tzinfo=None) - timedelta(minutes=minutes)
-    rows = db.scalars(
-        select(SensorSnapshot)
-        .where(SensorSnapshot.drone_id == drone_id, SensorSnapshot.record_time >= since)
-        .order_by(SensorSnapshot.record_time.desc())
-        .limit(limit)
-    ).all()
+    # list()：scalars().all() 返回只读 Sequence，倒序需可变列表
+    rows = list(
+        db.scalars(
+            select(SensorSnapshot)
+            .where(SensorSnapshot.drone_id == drone_id, SensorSnapshot.record_time >= since)
+            .order_by(SensorSnapshot.record_time.desc())
+            .limit(limit)
+        ).all()
+    )
     rows.reverse()  # 升序返回，图表直接消费
     return HistoryOut(
         drone_id=drone_id,
@@ -76,11 +79,13 @@ def get_history(
 
 def latest_frames(db: Session, drone_id: int, count: int = 60) -> list[SensorSnapshot]:
     """取最近 N 帧供 AI 诊断（时间升序）"""
-    rows = db.scalars(
-        select(SensorSnapshot)
-        .where(SensorSnapshot.drone_id == drone_id)
-        .order_by(SensorSnapshot.record_time.desc())
-        .limit(count)
-    ).all()
+    rows = list(
+        db.scalars(
+            select(SensorSnapshot)
+            .where(SensorSnapshot.drone_id == drone_id)
+            .order_by(SensorSnapshot.record_time.desc())
+            .limit(count)
+        ).all()
+    )
     rows.reverse()
     return rows
