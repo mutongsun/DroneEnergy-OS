@@ -133,34 +133,49 @@ class ApiClient:
 
 
 async def simulate_drone(drone_id: int, model: str, api: ApiClient) -> None:
-    """模拟单架无人机：1Hz 推 WS + 聚合批量写库"""
-    soc, altitude, phase = 100.0, 0.0, "takeoff"
-    lat, lng = 39.9042, 116.4074
-    batch: list[dict[str, Any]] = []
+    """模拟单架无人机：1Hz 推 WS + 聚合批量写库
 
-    # 上行走 /ws/upload（生产者端点）：不注册订阅表，避免收到自己数据的回声
-    # ——回声会堆积在只发不读的接收队列里，最终撑爆 keepalive 导致断连
-    ws = await connect_with_retry(f"{WS_URL}/ws/upload/{drone_id}")
-    async with ws:
-        for tick in range(3600):  # 模拟 1 小时飞行
-            if tick == 30:
-                phase = "cruise"
-            if tick == 3300:
-                phase = "landing"
+    外层 while：后端重新部署（容器重建）是常态，WS 断开后自动重连，
+    而非让整个模拟进程崩溃退出。
+    """
+    while True:
+        soc, altitude, phase = 100.0, 0.0, "takeoff"
+        lat, lng = 39.9042, 116.4074
+        batch: list[dict[str, Any]] = []
 
-            frame = build_frame(drone_id, model, soc, phase, lat, lng, altitude)
-            batch.append(frame)
-            await ws.send(json.dumps(frame, ensure_ascii=False))
+        # 上行走 /ws/upload（生产者端点）：不注册订阅表，避免收到自己数据的回声
+        # ——回声会堆积在只发不读的接收队列里，最终撑爆 keepalive 导致断连
+        try:
+            ws = await connect_with_retry(f"{WS_URL}/ws/upload/{drone_id}")
+        except (OSError, websockets.WebSocketException):
+            print(f"[drone-{drone_id}] 重连 30 次仍失败，60s 后再试")
+            await asyncio.sleep(60)
+            continue
 
-            if len(batch) >= BATCH_SIZE:
-                if not await api.post_batch(batch):
-                    print(f"[drone-{drone_id}] batch upload failed")
-                batch.clear()
+        try:
+            async with ws:
+                for tick in range(3600):  # 模拟 1 小时飞行
+                    if tick == 30:
+                        phase = "cruise"
+                    if tick == 3300:
+                        phase = "landing"
 
-            soc = max(soc - 0.02, 0.0)
-            altitude = update_altitude(phase, altitude)
-            lat += 0.0001
-            await asyncio.sleep(1)  # 1Hz 数据频率
+                    frame = build_frame(drone_id, model, soc, phase, lat, lng, altitude)
+                    batch.append(frame)
+                    await ws.send(json.dumps(frame, ensure_ascii=False))
+
+                    if len(batch) >= BATCH_SIZE:
+                        if not await api.post_batch(batch):
+                            print(f"[drone-{drone_id}] batch upload failed")
+                        batch.clear()
+
+                    soc = max(soc - 0.02, 0.0)
+                    altitude = update_altitude(phase, altitude)
+                    lat += 0.0001
+                    await asyncio.sleep(1)  # 1Hz 数据频率
+        except websockets.ConnectionClosed:
+            print(f"[drone-{drone_id}] WS 断开（后端重启？），5s 后重连")
+            await asyncio.sleep(5)
 
 
 async def main() -> None:

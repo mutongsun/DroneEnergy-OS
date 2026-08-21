@@ -17,6 +17,8 @@ from fastapi.middleware.cors import CORSMiddleware
 from prometheus_client import make_asgi_app
 from redis.asyncio import Redis
 
+from app.ai.client import DeepSeekClient
+from app.ai.router import router as ai_router
 from app.auth.router import router as auth_router
 from app.config import settings
 from app.drones.router import router as drones_router
@@ -31,6 +33,11 @@ from app.websocket.router import router as ws_router
 async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     redis = Redis.from_url(settings.redis_url)
     manager = ConnectionManager(redis, heartbeat_interval=settings.ws_heartbeat_interval)
+    # AI 客户端单例：进程内共享熔断器状态（多实例各自独立计数）
+    app.state.ai_client = DeepSeekClient(
+        api_key=settings.deepseek_api_key,
+        timeout=settings.deepseek_timeout,
+    )
     app.state.redis = redis
     app.state.ws_manager = manager
     await manager.start()  # Redis 订阅就绪后才对外提供服务
@@ -57,7 +64,7 @@ app.include_router(ws_router)
 app.include_router(auth_router, prefix="/api/v1")
 app.include_router(sensors_router, prefix="/api/v1")
 app.include_router(drones_router, prefix="/api/v1")
-# TODO(Week 2): flights / analytics 路由 + WS 实时转发
+app.include_router(ai_router, prefix="/api/v1")
 
 # Prometheus 抓取端点（make_asgi_app 为标准 ASGI 应用，非业务路由）
 app.mount("/metrics", make_asgi_app())

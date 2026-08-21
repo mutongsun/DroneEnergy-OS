@@ -23,4 +23,15 @@ export default defineConfig({
     environment: 'jsdom',
     include: ['src/**/*.spec.ts'],
   },
+  build: {
+    rollupOptions: {
+      output: {
+        // three/echarts 单独分包：主入口不因 3D 库膨胀（各自可被浏览器并行缓存）
+        manualChunks: {
+          three: ['three'],
+          echarts: ['echarts/core'],
+        },
+      },
+    },
+  },
 })

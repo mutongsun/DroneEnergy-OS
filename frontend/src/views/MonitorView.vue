@@ -3,6 +3,8 @@ import { computed, onMounted, ref, watch } from 'vue'
 import { ElMessage } from 'element-plus'
 import type { EChartsOption } from 'echarts'
 import RealtimeChart from '@/components/RealtimeChart.vue'
+import Drone3D from '@/components/Drone3D.vue'
+import AiPanel from '@/components/AiPanel.vue'
 import { useRealtime } from '@/composables/useRealtime'
 import { listDrones } from '@/api/drones'
 import type { Drone } from '@/types/api'
@@ -133,15 +135,32 @@ const chartOption = computed<EChartsOption>(() => ({
         </el-col>
       </el-row>
 
-      <el-card
-        shadow="never"
-        class="chart-card"
-      >
-        <template #header>
-          实时遥测（最近 120 帧，1Hz ≈ 2 分钟）
-        </template>
-        <RealtimeChart :option="chartOption" />
-      </el-card>
+      <el-row :gutter="12">
+        <el-col :span="14">
+          <el-card
+            shadow="never"
+            class="chart-card"
+          >
+            <template #header>
+              实时遥测（最近 120 帧，1Hz ≈ 2 分钟）
+            </template>
+            <RealtimeChart :option="chartOption" />
+          </el-card>
+        </el-col>
+        <el-col :span="10">
+          <el-card
+            shadow="never"
+            class="chart-card pose-card"
+          >
+            <template #header>
+              3D 姿态（pitch / yaw / roll 实时驱动）
+            </template>
+            <Drone3D :frame="latest" />
+          </el-card>
+        </el-col>
+      </el-row>
+
+      <AiPanel :drone-id="selectedId" class="ai-row" />
     </template>
   </div>
 </template>
@@ -176,5 +195,11 @@ const chartOption = computed<EChartsOption>(() => ({
 }
 .chart-card {
   min-height: 380px;
+}
+.pose-card {
+  height: 100%;
+}
+.ai-row {
+  margin-top: 12px;
 }
 </style>
