@@ -15,12 +15,23 @@ v3 增强：WS 握手期令牌认证
 - 认证失败先 accept 再 close：ASGI 在 accept 前直接 close 只能拒绝握手
   （客户端收到 HTTP 403，拿不到具体原因）；携带 4401/4403 关闭码
   可让客户端区分"令牌无效"与"角色不足"
+
+v4 修正（压测实测暴露的两个池级缺陷）：
+1. async 端点内直接调用同步 db.get()：连接池耗尽时在 event loop 上
+   同步等待，而归还连接的协程又需要 event loop 调度——互等死锁。
+   100 并发握手实测令后端整体假死（连 /health 都无响应）。
+   修正：认证查询经 run_in_threadpool 执行。
+2. DB 会话随依赖注入存活到端点返回——WS 端点是无限循环，等于每个
+   观看端在整个连接生命周期占用一个池连接，100 端必然打爆 60 上限。
+   修正：握手认证完成后立即 db.close() 归还（close 幂等，依赖
+   teardown 的二次 close 无副作用）。
 """
 
 import json
 
 import jwt
 from fastapi import APIRouter, Depends, WebSocket, WebSocketDisconnect
+from fastapi.concurrency import run_in_threadpool
 from sqlalchemy.orm import Session
 
 from app.auth.security import decode_access_token
@@ -58,7 +69,10 @@ async def _ws_authenticate(
         sub = payload["sub"]
         if not isinstance(sub, str):
             raise WsAuthError(_CLOSE_UNAUTHORIZED)
-        user = db.get(User, int(sub))
+        # 同步 DB IO 必须经线程池：async 端点内直接调用会在连接池
+        # 耗尽时同步阻塞 event loop，而池中连接的归还协程又需要
+        # event loop 调度——互等死锁（实测 100 并发握手即令后端假死）
+        user = await run_in_threadpool(db.get, User, int(sub))
     except (jwt.PyJWTError, KeyError, ValueError) as exc:
         raise WsAuthError(_CLOSE_UNAUTHORIZED) from exc
     if user is None:
@@ -83,6 +97,10 @@ async def upload(ws: WebSocket, drone_id: int, db: Session = Depends(get_db)) ->
     except WsAuthError as exc:
         await _reject(ws, exc.code)
         return
+    finally:
+        # 握手后不再触库：立即归还连接，否则长连接会占满连接池
+        # （FastAPI 的依赖 teardown 要等端点返回才执行，而 WS 端点是无限循环）
+        db.close()
 
     manager = ws.app.state.ws_manager
     await ws.accept()
@@ -111,6 +129,9 @@ async def realtime(ws: WebSocket, drone_id: int, db: Session = Depends(get_db)) 
     except WsAuthError as exc:
         await _reject(ws, exc.code)
         return
+    finally:
+        # 同 upload：握手后立即归还 DB 连接，防止观看端长连接占满池
+        db.close()
 
     manager = ws.app.state.ws_manager
     await manager.connect(ws, drone_id)

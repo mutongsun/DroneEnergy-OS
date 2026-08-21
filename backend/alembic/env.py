@@ -2,12 +2,13 @@
 
 连接串优先读环境变量 DATABASE_URL，凭据不进版本库。
 """
+
 import os
 from logging.config import fileConfig
 
-from alembic import context
 from sqlalchemy import create_engine
 
+from alembic import context
 from app.models import Base
 
 config = context.config

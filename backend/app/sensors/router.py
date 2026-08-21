@@ -60,16 +60,28 @@ def get_history(
 ) -> HistoryOut:
     """最近 N 分钟历史曲线（时间升序）；limit 截尾保护大时间窗查询"""
     since = datetime.now(UTC).replace(tzinfo=None) - timedelta(minutes=minutes)
-    # list()：scalars().all() 返回只读 Sequence，倒序需可变列表
-    rows = list(
-        db.scalars(
-            select(SensorSnapshot)
-            .where(SensorSnapshot.drone_id == drone_id, SensorSnapshot.record_time >= since)
-            .order_by(SensorSnapshot.record_time.desc())
-            .limit(limit)
-        ).all()
-    )
+    # 压测归因（2026-08-21）：PyMySQL 纯 Python 解析在 GIL 下串行化，
+    # SELECT * 拉 22 列时 40 并发 P50 从 24ms 劣化至 ~1.2s。此处只取
+    # HistoryPoint 消费的 9 列（诊断上下文走 latest_frames，不受影响）
+    rows = db.execute(
+        select(
+            SensorSnapshot.record_time,
+            SensorSnapshot.voltage_v,
+            SensorSnapshot.current_a,
+            SensorSnapshot.battery_temp_c,
+            SensorSnapshot.motor_temp_c,
+            SensorSnapshot.spin_thermal_power_w,
+            SensorSnapshot.altitude_m,
+            SensorSnapshot.battery_soc_percent,
+            SensorSnapshot.fault_code,
+        )
+        .where(SensorSnapshot.drone_id == drone_id, SensorSnapshot.record_time >= since)
+        .order_by(SensorSnapshot.record_time.desc())
+        .limit(limit)
+    ).all()
+    rows = list(rows)
     rows.reverse()  # 升序返回，图表直接消费
+    # Row 支持属性访问，from_attributes 校验直接消费
     return HistoryOut(
         drone_id=drone_id,
         minutes=minutes,

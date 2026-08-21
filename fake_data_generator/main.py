@@ -161,21 +161,32 @@ class ApiClient:
             self._token = None
 
     async def post_batch(self, frames: list[dict[str, Any]]) -> bool:
-        """上报一批帧；成功返回 True，401 重登录重试一次"""
-        tok = await self.token()
+        """上报一批帧；成功返回 True，401 重登录重试一次
+
+        网络层异常（超时/连接拒绝）统一吞掉返回 False：调用方按"本批失败"
+        继续运行。压测实测发现后端过载时这里的 TimeoutError 曾直接击穿
+        simulate_drone 的重连逻辑导致整个模拟进程崩溃退出。
+        """
+        try:
+            tok = await self.token()
+        except (asyncio.TimeoutError, aiohttp.ClientError, OSError):
+            return False  # 连登录都超时：后端必然过载，本批丢弃
         for attempt in range(2):
             headers = {"Authorization": f"Bearer {tok}"}
-            async with self._session.post(
-                f"{self._base_url}/api/v1/sensor/batch",
-                json={"frames": frames},
-                headers=headers,
-            ) as resp:
-                if resp.status == 401 and attempt == 0:
-                    async with self._lock:
-                        self._token = None
-                    tok = await self.token()
-                    continue
-                return resp.status == 200
+            try:
+                async with self._session.post(
+                    f"{self._base_url}/api/v1/sensor/batch",
+                    json={"frames": frames},
+                    headers=headers,
+                ) as resp:
+                    if resp.status == 401 and attempt == 0:
+                        async with self._lock:
+                            self._token = None
+                        tok = await self.token()
+                        continue
+                    return resp.status == 200
+            except (asyncio.TimeoutError, aiohttp.ClientError, OSError):
+                return False  # 后端过载/不可达：本批丢弃，不崩进程
         return False
 
 
@@ -197,7 +208,8 @@ async def simulate_drone(drone_id: int, model: str, api: ApiClient) -> None:
         try:
             token = await api.token()
             ws = await connect_with_retry(f"{WS_URL}/ws/upload/{drone_id}?token={token}")
-        except (OSError, websockets.WebSocketException):
+        except (OSError, websockets.WebSocketException, asyncio.TimeoutError, aiohttp.ClientError):
+            # 登录/建连失败（后端重启或过载）：等待后重试，不让进程崩溃
             print(f"[drone-{drone_id}] 重连 30 次仍失败，60s 后再试")
             await asyncio.sleep(60)
             continue
