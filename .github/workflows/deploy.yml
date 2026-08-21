@@ -1,0 +1,62 @@
+name: Deploy (test)
+
+# 手动触发的测试环境部署：git push -> CI 出镜像 -> 人工点击 -> SSH 拉取上线
+# 为什么手动而非 push 即部署：测试环境可能承载演示/联调，不应被中间态代码
+# 打断；且需确认 CI 镜像已构建完成（本 workflow 不等待 CI，见 README 部署章节）
+on:
+  workflow_dispatch:
+    inputs:
+      confirm:
+        description: "确认部署到测试环境"
+        type: choice
+        required: true
+        default: "cancel"
+        options:
+          - deploy
+          - cancel
+
+concurrency:
+  # 同一时刻只允许一个部署在跑，防止两次点击交叉重启容器
+  group: deploy-test
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    if: inputs.confirm == 'deploy'
+    runs-on: ubuntu-latest
+    # GitHub Environment：可在 Settings -> Environments -> test 配置
+    # 保护规则（如需人工审批），当前仅作部署历史分组
+    environment: test
+    steps:
+      - name: Deploy over SSH
+        uses: appleboy/ssh-action@v1
+        with:
+          host: ${{ secrets.TEST_SSH_HOST }}
+          username: ${{ secrets.TEST_SSH_USER }}
+          key: ${{ secrets.TEST_SSH_KEY }}
+          script: |
+            set -e
+            cd /opt/droneenergy-os
+            COMPOSE="docker compose -f docker-compose.yml -f docker-compose.prod.yml"
+
+            echo "== 1/4 拉取最新编排配置 =="
+            git pull --ff-only origin main
+
+            echo "== 2/4 拉取 GHCR 镜像 =="
+            $COMPOSE pull
+
+            echo "== 3/4 滚动更新容器 =="
+            $COMPOSE up -d --no-build
+
+            echo "== 4/4 健康检查（backend 宿主机映射 8001，含迁移+种子最长等 150s）=="
+            for i in $(seq 1 30); do
+              if curl -sf http://localhost:8001/api/v1/health >/dev/null; then
+                echo "== DEPLOY OK =="
+                $COMPOSE ps
+                exit 0
+              fi
+              sleep 5
+            done
+            echo "== HEALTH CHECK FAILED, backend recent logs: =="
+            $COMPOSE logs --tail 30 backend
+            exit 1

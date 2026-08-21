@@ -4,7 +4,9 @@ services:
   mysql:
     image: mysql:8.0
     environment:
-      MYSQL_ROOT_PASSWORD: root123
+      # 密码经 .env 注入；默认值 root123 兼容本地已初始化的数据卷
+      # （MySQL 仅在数据卷首次初始化时读取该变量，改 .env 不影响存量卷）
+      MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD:-root123}
       MYSQL_DATABASE: drone_energy
     ports:
       # 宿主机 3306 常被本地 MySQL 占用，对外映射 3307；
@@ -13,7 +15,7 @@ services:
     volumes:
       - mysql_data:/var/lib/mysql
     healthcheck:
-      test: ["CMD", "mysqladmin", "ping", "-h", "127.0.0.1", "-uroot", "-proot123"]
+      test: ["CMD", "mysqladmin", "ping", "-h", "127.0.0.1", "-uroot", "-p${MYSQL_ROOT_PASSWORD:-root123}"]
       interval: 5s
       timeout: 3s
       retries: 10
@@ -41,9 +43,12 @@ services:
     environment:
       # charset 必须显式声明：PyMySQL 不指定时会依赖服务器握手协商，
       # 旧版驱动对 MySQL 8 默认 collation(utf8mb4_0900_ai_ci) 会回退 latin1，中文即损坏
-      DATABASE_URL: mysql+pymysql://root:root123@mysql:3306/drone_energy?charset=utf8mb4
+      # 密码与 mysql 服务的 MYSQL_ROOT_PASSWORD 共用同一变量，改 .env 一处生效
+      DATABASE_URL: mysql+pymysql://root:${MYSQL_ROOT_PASSWORD:-root123}@mysql:3306/drone_energy?charset=utf8mb4
       REDIS_URL: redis://redis:6379/0
       DEEPSEEK_API_KEY: ${DEEPSEEK_API_KEY:-}
+      # 服务器部署必须经 .env 覆盖（默认值仅供本地演示）
+      JWT_SECRET: ${JWT_SECRET:-change-me-in-prod}
     depends_on:
       mysql:
         condition: service_healthy

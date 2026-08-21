@@ -3,9 +3,9 @@ name: Backend CI
 on:
   push:
     branches: [main]
-    paths: ["backend/**", ".github/workflows/backend.yml"]
+    paths: ["backend/**", "fake_data_generator/**", ".github/workflows/backend.yml"]
   pull_request:
-    paths: ["backend/**", ".github/workflows/backend.yml"]
+    paths: ["backend/**", "fake_data_generator/**", ".github/workflows/backend.yml"]
 
 # 同分支新推送取消旧流水线，节省 runner 时间
 concurrency:
@@ -71,3 +71,14 @@ jobs:
           context: backend
           push: true
           tags: ${{ env.IMAGE }}:latest
+
+      # 模拟器镜像：测试环境的数据源（无它则实时页面无数据可看）。
+      # 依赖极小（aiohttp + websockets），与 backend 同 job 构建省一次 checkout
+      - name: Resolve fake-data image name (lowercase)
+        run: echo "FAKE_IMAGE=ghcr.io/${GITHUB_REPOSITORY,,}/fake-data" >> "$GITHUB_ENV"
+
+      - uses: docker/build-push-action@v6
+        with:
+          context: fake_data_generator
+          push: true
+          tags: ${{ env.FAKE_IMAGE }}:latest

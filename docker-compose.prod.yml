@@ -1,0 +1,25 @@
+# 生产/测试环境部署覆盖层：消费 GHCR 镜像而非本地构建
+#
+# 用法（在服务器上，与 docker-compose.yml 叠加）：
+#   docker compose -f docker-compose.yml -f docker-compose.prod.yml pull
+#   docker compose -f docker-compose.yml -f docker-compose.prod.yml up -d --no-build
+#
+# 设计说明：
+# - 本文件只声明 image:；merge 后 build: 与 image: 并存，
+#   `pull` 拉取镜像 + `up -d --no-build` 禁止构建 → 纯镜像部署
+# - 镜像由 CI（backend.yml / frontend.yml 的 docker job）推送到 GHCR，
+#   部署机不需要源码构建能力（无 Dockerfile 上下文依赖）
+# - GHCR 包默认私有：部署机需 docker login ghcr.io（read:packages 权限 PAT），
+#   或在 GitHub 包设置中改为 public
+# - 监控栈（prometheus/grafana）沿用 base 的 profiles: [monitoring]，
+#   测试环境需要时加 --profile monitoring
+
+services:
+  backend:
+    image: ghcr.io/mutongsun/droneenergy-os/backend:latest
+
+  frontend:
+    image: ghcr.io/mutongsun/droneenergy-os/frontend:latest
+
+  fake-data:
+    image: ghcr.io/mutongsun/droneenergy-os/fake-data:latest

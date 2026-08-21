@@ -185,27 +185,79 @@ Grafana 看板（9 面板）与数据源经 provisioning 自动加载，无需�
 
 ## CI/CD
 
-`.github/workflows/backend.yml`（后端）与 `frontend.yml`（前端）：
+`.github/workflows/backend.yml`（后端 + 模拟器）与 `frontend.yml`（前端）：
 
 ```
 push/PR → lint → format 检查 → 类型检查（mypy / vue-tsc）
-        → 单测（pytest 覆盖率门禁 50% / vitest）
+        → 单测（pytest 覆盖率门禁 75% / vitest）
         → build → 镜像推送 ghcr.io（仅 main）
 ```
 
 - 同分支新推送自动取消旧流水线（concurrency 控制）
-- 镜像名强制小写（GHCR 约束）
+- 镜像名强制小写（GHCR 约束）；三个镜像：`backend` / `frontend` / `fake-data`
 - PR 只做质量门禁不推镜像
 
 本地对齐 CI 门禁：
 
 ```bash
 # 后端（backend/ 目录）
-ruff check app tests && ruff format --check app tests && mypy app && pytest --cov=app --cov-fail-under=50
+ruff check app tests && ruff format --check app tests && mypy app && pytest --cov=app --cov-fail-under=75
 
 # 前端（frontend/ 目录）
 npm run lint && npm run typecheck && npm run test && npm run build
 ```
+
+## 测试环境部署（CD）
+
+`deploy.yml`：**手动触发**（workflow_dispatch）→ SSH 到测试服务器 →
+拉取 GHCR 镜像 → 滚动更新 → 健康检查门禁（失败自动输出后端日志）。
+选择手动而非 push 即部署：测试环境可能承载演示/联调，不应被中间态代码打断。
+
+### 服务器一次性初始化（bootstrap）
+
+```bash
+# 1. 安装 Docker + Compose 插件 + Git（Ubuntu 示例）
+curl -fsSL https://get.docker.com | sh
+sudo apt-get install -y git docker-compose-plugin
+sudo usermod -aG docker $USER && exit  # 重新登录生效
+
+# 2. 拉取仓库（部署目录与 deploy.yml 约定一致）
+git clone https://github.com/mutongsun/DroneEnergy-OS.git /opt/droneenergy-os
+cd /opt/droneenergy-os
+
+# 3. 准备环境变量（密码/AI Key 永不进库）
+cp .env.example .env && vim .env   # 改 MYSQL_ROOT_PASSWORD、填 DEEPSEEK_API_KEY
+
+# 4. 登录 GHCR 拉私有镜像（classic PAT，勾选 read:packages）
+echo <YOUR_GHCR_PAT> | docker login ghcr.io -u mutongsun --password-stdin
+
+# 5. 首次部署（与后续 CD 部署同一命令序列）
+docker compose -f docker-compose.yml -f docker-compose.prod.yml pull
+docker compose -f docker-compose.yml -f docker-compose.prod.yml up -d --no-build
+```
+
+> GHCR 包默认私有。也可在 GitHub 包设置中改为 public（镜像内不含密钥，
+> 运行时经 .env 注入），则第 4 步可跳过。
+
+### 配置 GitHub Secrets（仓库 Settings → Secrets and variables → Actions）
+
+| Secret | 内容 |
+|---|---|
+| `TEST_SSH_HOST` | 测试服务器 IP/域名 |
+| `TEST_SSH_USER` | SSH 用户（需在 docker 组） |
+| `TEST_SSH_KEY` | SSH 私钥内容（`ssh-keygen -t ed25519` 生成，公钥追加到服务器 `~/.ssh/authorized_keys`） |
+
+### 日常部署操作
+
+1. `git push origin main` → 等待 Backend/Frontend CI 全绿（镜像就绪）
+2. GitHub → Actions → **Deploy (test)** → Run workflow → 确认选 `deploy`
+3. 流水线四步：拉配置（git pull）→ 拉镜像 → 滚动更新 → 健康检查
+4. 访问 `http://<服务器IP>:5173`（前端 nginx 已反代 `/api/` 与 `/ws/`，
+   浏览器同源访问，无需 CORS 配置）
+
+> 部署并发互斥（concurrency）；健康检查失败时流水线自动打印 backend
+> 最近 30 行日志便于定位。镜像为 amd64 架构（绝大多数云服务器适用，
+> ARM 服务器需 CI 增加 platform 构建）。
 
 ---
 

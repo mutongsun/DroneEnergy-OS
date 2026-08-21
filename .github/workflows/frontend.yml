@@ -3,9 +3,9 @@ name: Frontend CI
 on:
   push:
     branches: [main]
-    paths: ["frontend/**"]
+    paths: ["frontend/**", ".github/workflows/frontend.yml"]
   pull_request:
-    paths: ["frontend/**"]
+    paths: ["frontend/**", ".github/workflows/frontend.yml"]
 
 concurrency:
   group: frontend-ci-${{ github.ref }}
@@ -44,3 +44,30 @@ jobs:
 
       - name: Build
         run: npm run build
+
+  docker:
+    needs: quality
+    # 仅 main 分支推送镜像到 GHCR；PR 只做质量门禁（与 backend.yml 对齐）
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      # GHCR 要求镜像名全小写（与 backend.yml 同款坑：仓库名含大写）
+      - name: Resolve image name (lowercase)
+        run: echo "IMAGE=ghcr.io/${GITHUB_REPOSITORY,,}/frontend" >> "$GITHUB_ENV"
+
+      - uses: docker/build-push-action@v6
+        with:
+          context: frontend
+          push: true
+          tags: ${{ env.IMAGE }}:latest
